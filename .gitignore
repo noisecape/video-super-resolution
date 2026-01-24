@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyTorch
+*.pth
+*.pt
+checkpoints/
+
+# Dataset
+data/vimeo_septuplet/
+data/vimeo90k/
+*.mp4
+*.avi
+*.mkv
+
+# Outputs
+demos/outputs/*.mp4
+demos/outputs/*.png
+demos/outputs/*.jpg
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+wandb/
+tensorboard/
+
+# Experiments
+experiments/
+results/
+
+CLAUDE.md
+data/datasets

@@ -1,0 +1,31 @@
+name: video-sr
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python
+  - python=3.10
+
+  # PyTorch with CUDA support (RTX 3090Ti)
+  - pytorch=2.1.0
+  - torchvision=0.16.0
+  - pytorch-cuda=11.8
+
+  # Core scientific stack (optimized conda builds)
+  - numpy<2.0  # Pin to 1.x for PyTorch compatibility
+  - pillow=10.0.0
+
+  # Development tools
+  - jupyter=1.0.0
+  - matplotlib=3.7.2
+  - tensorboard=2.13.0
+  - tqdm=4.65.0
+
+  # Pip packages (better from PyPI or not available in conda)
+  - pip:
+    - einops>=0.6.1
+    - opencv-python>=4.7.0
+    - pyyaml>=6.0
