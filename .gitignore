@@ -29,11 +29,13 @@ wheels/
 checkpoints/
 
 # Dataset
-data/vimeo_septuplet/
-data/vimeo90k/
+data/datasets/vimeo_septuplet/
+data/datasets
 *.mp4
 *.avi
 *.mkv
+*.png
+*.txt
 
 # Outputs
 demos/outputs/*.mp4
@@ -66,4 +68,3 @@ experiments/
 results/
 
 CLAUDE.md
-data/datasets
