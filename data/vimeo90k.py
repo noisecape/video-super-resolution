@@ -4,6 +4,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+_DATASET_ROOT = Path(__file__).resolve().parent / 'datasets' / 'vimeo90k' / 'vimeo_septuplet'
+
+
 class Video90k(Dataset):
 
     def __init__(
@@ -26,15 +29,15 @@ class Video90k(Dataset):
         self.img_resolution = img_resolution
         self.downscale_factor = downscale_factor
         self.downscale_technique = downscale_technique
-        self.dataset_path = Path('/home/noisecape/developer/video-super-resolution/data/datasets/vimeo90k/vimeo_septuplet/sequences')
+        self.dataset_path = _DATASET_ROOT / 'sequences'
         self.sequences = self.load_sequences()
         
     def __len__(self):
         return len(self.sequences)
     
     def load_sequences(self):
-        train_seq = Path('/home/noisecape/developer/video-super-resolution/data/datasets/vimeo90k/vimeo_septuplet/sep_trainlist.txt')
-        test_seq = Path('/home/noisecape/developer/video-super-resolution/data/datasets/vimeo90k/vimeo_septuplet/sep_testlist.txt')
+        train_seq = _DATASET_ROOT / 'sep_trainlist.txt'
+        test_seq = _DATASET_ROOT / 'sep_testlist.txt'
         if self.dataset_mode == 'train':
             with open(train_seq, 'r') as train_seq_file:
                 # read sequence lines, remove newline characters
@@ -88,11 +91,3 @@ class Video90k(Dataset):
         target_high_res = torch.from_numpy(target_high_res) / 255.0
 
         return context_frames_low_res, target_low_res, target_high_res
-    
-
-
-if __name__ == "__main__":
-    dataset = Video90k(dataset_mode='train')
-    sample_index = 124
-    data = dataset[sample_index]
-    print(data)
