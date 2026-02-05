@@ -17,6 +17,51 @@ class UNet(nn.Module):
         pass
 
 
+class AdaGN(nn.Module):
+    """
+    Adaptive Group Normalization for timestep conditioning.
+    Normalizes features, then applies timestep-dependent scale and shift.
+    """
+
+    def __init__(self, num_channels, time_emb_dim, num_groups=32):
+        """
+        Args:
+            num_channels: Number of feature channels to normalize (C)
+            time_emb_dim: Dimension of timestep embedding input
+            num_groups: Number of groups for GroupNorm (default 32)
+        """
+        super().__init__()
+
+        # Standard group normalization (learnable affine disabled - we'll use our own scale/shift)
+        self.group_norm = nn.GroupNorm(num_groups, num_channels, affine=False)
+
+        # Project timestep embedding to scale and shift parameters
+        # Input: (B, time_emb_dim) -> Output: (B, num_channels * 2) for scale AND shift
+        self.time_mlp = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(time_emb_dim, num_channels * 2)
+        )
+
+    def forward(self, x, t_emb):
+        """
+        Args:
+            x: Feature tensor of shape (B, C, H, W)
+            t_emb: Timestep embedding of shape (B, time_emb_dim)
+        Returns:
+            Modulated features of shape (B, C, H, W)
+        """
+        # TODO: Implement the forward pass
+        # Step 1: Apply group normalization to x
+        x_norm = self.group_norm(x)
+        # Step 2: Project t_emb through self.time_mlp to get scale and shift
+        t_emb = self.time_mlp(t_emb)
+        # Step 3: Split the projection into scale and shift (hint: chunk)
+        scale, shift = torch.chunk(t_emb, 2, dim=1)
+        # Step 4: Apply modulation: scale * normalized + shift
+        x_norm = scale * x_norm + shift
+        return x_norm
+  
+
 class ConvBlock(nn.Module):
     pass
 
@@ -59,14 +104,19 @@ class SinusoidalPositionEmbeddings(nn.Module):
         return embeddings
 
 
-# test sinusoidal embeddings
-embedder = SinusoidalPositionEmbeddings(dim=16)
-t_early = embedder(torch.tensor([10]))    # Early denoising
-t_mid = embedder(torch.tensor([500]))     # Mid denoising
-t_mid2 = embedder(torch.tensor([501]))     # Mid denoising
-t_late = embedder(torch.tensor([990]))    # Late denoising
 
-print("Early timestep (10):", t_early[0, :4])  # First 4 dims
-print("Mid timestep (500):", t_mid[0, :4])
-print("Mid timestep 2 (501):", t_mid2[0, :4])
-print("Late timestep (990):", t_late[0, :4])
+# test adaGN
+adaGN = AdaGN(256, 128, 32)
+norm_emb = adaGN()
+
+# test sinusoidal embeddings
+# embedder = SinusoidalPositionEmbeddings(dim=16)
+# t_early = embedder(torch.tensor([10]))    # Early denoising
+# t_mid = embedder(torch.tensor([500]))     # Mid denoising
+# t_mid2 = embedder(torch.tensor([501]))     # Mid denoising
+# t_late = embedder(torch.tensor([990]))    # Late denoising
+
+# print("Early timestep (10):", t_early[0, :4])  # First 4 dims
+# print("Mid timestep (500):", t_mid[0, :4])
+# print("Mid timestep 2 (501):", t_mid2[0, :4])
+# print("Late timestep (990):", t_late[0, :4])
