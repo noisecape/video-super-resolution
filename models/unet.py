@@ -50,20 +50,49 @@ class AdaGN(nn.Module):
         Returns:
             Modulated features of shape (B, C, H, W)
         """
-        # TODO: Implement the forward pass
         # Step 1: Apply group normalization to x
         x_norm = self.group_norm(x)
         # Step 2: Project t_emb through self.time_mlp to get scale and shift
         t_emb = self.time_mlp(t_emb)
         # Step 3: Split the projection into scale and shift (hint: chunk)
         scale, shift = torch.chunk(t_emb, 2, dim=1)
+        # expand to apply broadcasting
+        scale = scale[:,:, None, None]
+        shift = shift[:,:, None, None]
         # Step 4: Apply modulation: scale * normalized + shift
-        x_norm = scale * x_norm + shift
+        # the +1 is to account for the random init that is ~0 in the beginnig
+        # nn.Linear uses Kaiming uniform init -> weights ~ Uniform(-1/√k, +1/√k) = Uniform(-0.088, +0.088)
+        x_norm = (1+scale) * x_norm + shift 
+
         return x_norm
   
 
 class ConvBlock(nn.Module):
-    pass
+    
+    def __init__(self, in_channels, out_channels, time_emb_dim, num_groups=32):
+        super().__init__()
+
+        self.adaGN1 = AdaGN(in_channels, time_emb_dim, num_groups)
+        self.conv_block1 = nn.Sequential(
+            nn.SiLU(),
+            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1)
+        )
+        self.adaGN2 = AdaGN(out_channels, time_emb_dim, num_groups)
+        self.conv_block2 = nn.Sequential(
+            nn.SiLU(),
+            nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, padding=1)
+        )
+
+        self.skip = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1) if in_channels != out_channels else nn.Identity()
+
+    def forward(self, x, t_emb):
+        res_connection = x
+        x = self.adaGN1(x, t_emb)
+        x = self.conv_block1(x)
+        x = self.adaGN2(x, t_emb)
+        x = self.conv_block2(x)
+        x = x + self.skip(res_connection)
+        return x
 
 
 class SinusoidalPositionEmbeddings(nn.Module):
@@ -106,8 +135,11 @@ class SinusoidalPositionEmbeddings(nn.Module):
 
 
 # test adaGN
-adaGN = AdaGN(256, 128, 32)
-norm_emb = adaGN()
+sample = torch.randn((16, 64, 128, 128))
+t_emb = torch.randn((16, 128))
+res_net = ConvBlock(in_channels=64, out_channels=128, time_emb_dim=128, num_groups=32)
+embs = res_net(sample, t_emb)
+
 
 # test sinusoidal embeddings
 # embedder = SinusoidalPositionEmbeddings(dim=16)
