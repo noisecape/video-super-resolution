@@ -2,19 +2,106 @@ import torch
 import torch.nn as nn
 
 class UNet(nn.Module):
-    
-    def __init__(self):
+
+    def __init__(self, in_channels=8, out_channels=4, base_channels=64,
+                 channel_mults=(1, 2, 4, 8), time_emb_dim=256, num_groups=32):
         super().__init__()
 
-        self.timestep_embedding = ...
-        self.encoder = ...
-        self.bottleneck = ...
-        self.decoder = ...
-        self.conditioning_mechanism = ...
+        # --- Timestep embedding: sinusoidal → MLP projection ---
+        # Sinusoidal gives us (B, base_channels), MLP projects to (B, time_emb_dim)
+        self.time_embed = nn.Sequential(
+            SinusoidalPositionEmbeddings(base_channels),
+            nn.Linear(base_channels, time_emb_dim),
+            nn.SiLU(),
+            nn.Linear(time_emb_dim, time_emb_dim),
+        )
 
+        # --- Initial convolution: raw input → base_channels ---
+        self.input_conv = nn.Conv2d(in_channels, base_channels, kernel_size=3, padding=1)
 
-    def forward(self):
-        pass
+        # --- Encoder: progressively downsample ---
+        self.encoder_blocks = nn.ModuleList()
+        self.downsamplers = nn.ModuleList()
+
+        channels = [base_channels]  # track channel sizes for skip connections
+        ch_in = base_channels
+        for mult in channel_mults[:-1]:  # exclude last mult (that's the bottleneck)
+            ch_out = base_channels * mult
+            self.encoder_blocks.append(nn.ModuleList([
+                ConvBlock(ch_in, ch_out, time_emb_dim, num_groups),
+                ConvBlock(ch_out, ch_out, time_emb_dim, num_groups),
+            ]))
+            self.downsamplers.append(Downsample(ch_out))
+            channels.append(ch_out)
+            ch_in = ch_out
+
+        # --- Bottleneck ---
+        bottleneck_ch = base_channels * channel_mults[-1]
+        self.bottleneck = nn.ModuleList([
+            ConvBlock(ch_in, bottleneck_ch, time_emb_dim, num_groups),
+            ConvBlock(bottleneck_ch, bottleneck_ch, time_emb_dim, num_groups),
+        ])
+
+        # --- Decoder: progressively upsample ---
+        self.decoder_blocks = nn.ModuleList()
+        self.upsamplers = nn.ModuleList()
+
+        ch_in = bottleneck_ch
+        for mult in reversed(channel_mults[:-1]):
+            ch_out = base_channels * mult
+            ch_skip = channels.pop()  # matching encoder's output channels
+            # ch_in + ch_skip because we concatenate skip connections
+            self.decoder_blocks.append(nn.ModuleList([
+                ConvBlock(ch_in + ch_skip, ch_out, time_emb_dim, num_groups),
+                ConvBlock(ch_out, ch_out, time_emb_dim, num_groups),
+            ]))
+            self.upsamplers.append(Upsample(ch_in))
+            ch_in = ch_out
+
+        # --- Final output projection ---
+        self.output_conv = nn.Sequential(
+            nn.GroupNorm(num_groups, ch_in),
+            nn.SiLU(),
+            nn.Conv2d(ch_in, out_channels, kernel_size=1),
+        )
+
+    def forward(self, x, t):
+        """
+        Args:
+            x: Noisy input tensor (B, in_channels, H, W)
+            t: Timestep tensor (B,)
+        Returns:
+            Predicted noise (B, out_channels, H, W)
+        """
+        # Step 1: Compute timestep embedding using self.time_embed(t)
+        t_emb = self.time_embed(t)
+        # Step 2: Apply self.input_conv to x
+        x = self.input_conv(x)
+        # Step 3: Encoder - for each (encoder_block, downsampler):
+        #           - pass x through both ConvBlocks (with t_emb)
+        #           - save x to a skip_connections list
+        #           - downsample x
+        skip_connections = []
+        for enc_block, down_block in zip(self.encoder_blocks, self.downsamplers):
+            x = enc_block[0](x, t_emb)
+            x = enc_block[1](x, t_emb)
+            skip_connections.append(x)
+            x = down_block(x)
+        # Step 4: Bottleneck - pass x through both bottleneck ConvBlocks
+        x = self.bottleneck[0](x, t_emb)
+        x = self.bottleneck[1](x, t_emb)
+        # Step 5: Decoder - for each (upsampler, decoder_block):
+        #           - upsample x
+        #           - concatenate with skip_connections.pop() along dim=1
+        #           - pass through both ConvBlocks (with t_emb)
+        for dec_block, up_block in zip(self.decoder_blocks, self.upsamplers):
+            x = up_block(x)
+            x = torch.concat((x, skip_connections.pop()), dim=1)
+            x = dec_block[0](x, t_emb)
+            x = dec_block[1](x, t_emb)
+        # Step 6: Apply self.output_conv to get final prediction
+        x = self.output_conv(x)
+        return x
 
 
 class AdaGN(nn.Module):
@@ -95,6 +182,29 @@ class ConvBlock(nn.Module):
         return x
 
 
+class Downsample(nn.Module):
+    """Halves spatial dimensions using strided convolution."""
+
+    def __init__(self, channels):
+        super().__init__()
+        self.conv = nn.Conv2d(channels, channels, kernel_size=3, stride=2, padding=1)
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class Upsample(nn.Module):
+    """Doubles spatial dimensions using interpolation + convolution."""
+
+    def __init__(self, channels):
+        super().__init__()
+        self.conv = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        x = nn.functional.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        return self.conv(x)
+
+
 class SinusoidalPositionEmbeddings(nn.Module):
     """
     Encodes timestep integers into sinusoidal embeddings for diffusion models.
@@ -135,12 +245,11 @@ class SinusoidalPositionEmbeddings(nn.Module):
 
 
 # test adaGN
-sample = torch.randn((16, 64, 128, 128))
-t_emb = torch.randn((16, 128))
-res_net = ConvBlock(in_channels=64, out_channels=128, time_emb_dim=128, num_groups=32)
-embs = res_net(sample, t_emb)
-
-
+batch_sample = torch.randn((2, 3, 64, 64)).to('cuda')
+t = (torch.ones((2))*36).to('cuda')
+u_net = UNet(in_channels=3, out_channels=3).to('cuda')
+pred = u_net(batch_sample, t)
+print(pred.shape)
 # test sinusoidal embeddings
 # embedder = SinusoidalPositionEmbeddings(dim=16)
 # t_early = embedder(torch.tensor([10]))    # Early denoising
