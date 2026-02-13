@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from einops import rearrange
 
 class UNet(nn.Module):
 
@@ -182,6 +183,60 @@ class ConvBlock(nn.Module):
         return x
 
 
+class SelfAttention(nn.Module):
+    """
+    Multi-head self-attention for spatial feature maps.
+    Every spatial position attends to every other position.
+    """
+
+    def __init__(self, channels, num_heads=4):
+        """
+        Args:
+            channels: Number of input/output channels (C)
+            num_heads: Number of attention heads (must divide channels evenly)
+        """
+        super().__init__()
+        assert channels % num_heads == 0, f"channels ({channels}) must be divisible by num_heads ({num_heads})"
+
+        self.num_heads = num_heads
+        self.head_dim = channels // num_heads  # dimension per head
+
+        self.norm = nn.GroupNorm(32, channels)
+        # Single projection that produces Q, K, V all at once: C → 3C
+        self.qkv_proj = nn.Conv2d(channels, channels * 3, kernel_size=1)
+        # Output projection: C → C
+        self.out_proj = nn.Conv2d(channels, channels, kernel_size=1)
+
+    def forward(self, x):
+        """
+        Args:
+            x: Feature tensor of shape (B, C, H, W)
+        Returns:
+            Attention-refined features of shape (B, C, H, W)
+        """
+        B, C, H, W = x.shape
+
+        # Step 1: Save x for residual, then normalize
+        residual = x
+        x = self.norm(x)
+        # Step 2: Project to Q, K, V → (B, 3C, H, W), split into (B, C, H, W) each
+        q, k, v = self.qkv_proj(x).chunk(3, dim=1)
+        # Step 3: Reshape → (B, num_heads, H*W, head_dim)
+        q = rearrange(q, 'b (num_heads head_dim) h w -> b num_heads (h w) head_dim', num_heads=self.num_heads, head_dim=self.head_dim)
+        k = rearrange(k, 'b (num_heads head_dim) h w -> b num_heads (h w) head_dim', num_heads=self.num_heads, head_dim=self.head_dim)
+        v = rearrange(v, 'b (num_heads head_dim) h w -> b num_heads (h w) head_dim', num_heads=self.num_heads, head_dim=self.head_dim)
+        # Step 4: Attention scores (Q @ K^T) / sqrt(head_dim) → (B, num_heads, H*W, H*W)
+        scale = self.head_dim ** -0.5
+        attn_weights = (q @ k.transpose(-2, -1)) * scale
+        attn_weights = attn_weights.softmax(dim=-1)
+        # Step 5: Weighted sum over values → (B, num_heads, H*W, head_dim)
+        out = attn_weights @ v
+        # Step 6: Merge heads back → (B, C, H, W)
+        out = rearrange(out, 'b num_heads (h w) head_dim -> b (num_heads head_dim) h w', h=H, w=W)
+        # Step 7: Output projection + residual
+        return self.out_proj(out) + residual
+
+
 class Downsample(nn.Module):
     """Halves spatial dimensions using strided convolution."""
 
@@ -245,11 +300,10 @@ class SinusoidalPositionEmbeddings(nn.Module):
 
 
 # test adaGN
-batch_sample = torch.randn((2, 3, 64, 64)).to('cuda')
-t = (torch.ones((2))*36).to('cuda')
-u_net = UNet(in_channels=3, out_channels=3).to('cuda')
-pred = u_net(batch_sample, t)
-print(pred.shape)
+batch_sample = torch.randn((2, 64, 64, 64)).to('cuda')
+self_attention = SelfAttention(channels=64, num_heads=4).to('cuda')
+attention_score = self_attention(batch_sample)
+print(attention_score)
 # test sinusoidal embeddings
 # embedder = SinusoidalPositionEmbeddings(dim=16)
 # t_early = embedder(torch.tensor([10]))    # Early denoising
