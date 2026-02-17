@@ -19,7 +19,7 @@ class NoiseScheduler(nn.Module):
     
     def add_noise(self, x_0, timesteps):
         # corruption step formula: x_t = √(α_t) · x_{t-1} + √(1-α_t) · ε_t
-        noise = torch.randn_like(x0)
+        noise = torch.randn_like(x_0)
         # two terms of the equation, 1) how much of the image we have to retain, 2) how much noise to inject
         x_t = torch.sqrt(self.alphas_cumprod[timesteps]) * x_0 + torch.sqrt(1-self.alphas_cumprod[timesteps]) * noise
         return x_t

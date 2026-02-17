@@ -5,7 +5,8 @@ from einops import rearrange
 class UNet(nn.Module):
 
     def __init__(self, in_channels=8, out_channels=4, base_channels=64,
-                 channel_mults=(1, 2, 4, 8), time_emb_dim=256, num_groups=32):
+                 channel_mults=(1, 2, 4, 8), time_emb_dim=256, num_groups=32,
+                 attn_resolutions=(2,), num_heads=4):
         super().__init__()
 
         # --- Timestep embedding: sinusoidal → MLP projection ---
@@ -26,21 +27,24 @@ class UNet(nn.Module):
 
         channels = [base_channels]  # track channel sizes for skip connections
         ch_in = base_channels
-        for mult in channel_mults[:-1]:  # exclude last mult (that's the bottleneck)
+        for level, mult in enumerate(channel_mults[:-1]):  # exclude last mult (that's the bottleneck)
             ch_out = base_channels * mult
+            use_attn = level in attn_resolutions
             self.encoder_blocks.append(nn.ModuleList([
                 ConvBlock(ch_in, ch_out, time_emb_dim, num_groups),
                 ConvBlock(ch_out, ch_out, time_emb_dim, num_groups),
+                SelfAttention(ch_out, num_heads) if use_attn else nn.Identity(),
             ]))
             self.downsamplers.append(Downsample(ch_out))
             channels.append(ch_out)
             ch_in = ch_out
 
-        # --- Bottleneck ---
+        # --- Bottleneck: ConvBlock → Attn → ConvBlock ---
         bottleneck_ch = base_channels * channel_mults[-1]
         self.bottleneck = nn.ModuleList([
             ConvBlock(ch_in, bottleneck_ch, time_emb_dim, num_groups),
-            ConvBlock(bottleneck_ch, bottleneck_ch, time_emb_dim, num_groups),
+            SelfAttention(bottleneck_ch, num_heads),
+            ConvBlock(bottleneck_ch, bottleneck_ch, time_emb_dim, num_groups)
         ])
 
         # --- Decoder: progressively upsample ---
@@ -48,13 +52,16 @@ class UNet(nn.Module):
         self.upsamplers = nn.ModuleList()
 
         ch_in = bottleneck_ch
-        for mult in reversed(channel_mults[:-1]):
+        for level, mult in enumerate(reversed(channel_mults[:-1])):
             ch_out = base_channels * mult
             ch_skip = channels.pop()  # matching encoder's output channels
             # ch_in + ch_skip because we concatenate skip connections
+            encoder_level = len(channel_mults) - 2 - level
+            use_attn = encoder_level in attn_resolutions
             self.decoder_blocks.append(nn.ModuleList([
                 ConvBlock(ch_in + ch_skip, ch_out, time_emb_dim, num_groups),
                 ConvBlock(ch_out, ch_out, time_emb_dim, num_groups),
+                SelfAttention(ch_out, num_heads) if use_attn else nn.Identity()
             ]))
             self.upsamplers.append(Upsample(ch_in))
             ch_in = ch_out
@@ -86,11 +93,13 @@ class UNet(nn.Module):
         for enc_block, down_block in zip(self.encoder_blocks, self.downsamplers):
             x = enc_block[0](x, t_emb)
             x = enc_block[1](x, t_emb)
+            x = enc_block[2](x) # self-attention, otherwise identity
             skip_connections.append(x)
             x = down_block(x)
         # Step 4: Bottleneck - pass x through both bottleneck ConvBlocks
         x = self.bottleneck[0](x, t_emb)
-        x = self.bottleneck[1](x, t_emb)
+        x = self.bottleneck[1](x) # self-attention, otherwise identity
+        x = self.bottleneck[2](x, t_emb)
         # Step 5: Decoder - for each (upsampler, decoder_block):
         #           - upsample x
         #           - concatenate with skip_connections.pop() along dim=1
@@ -100,6 +109,7 @@ class UNet(nn.Module):
             x = torch.concat((x, skip_connections.pop()), dim=1)
             x = dec_block[0](x, t_emb)
             x = dec_block[1](x, t_emb)
+            x = dec_block[2](x) # self-attention, otherwise Identity
         # Step 6: Apply self.output_conv to get final prediction
         x = self.output_conv(x)
         return x
@@ -296,22 +306,3 @@ class SinusoidalPositionEmbeddings(nn.Module):
         embeddings = torch.cat([torch.sin(embeddings), torch.cos(embeddings)], dim=-1)
 
         return embeddings
-
-
-
-# test adaGN
-batch_sample = torch.randn((2, 64, 64, 64)).to('cuda')
-self_attention = SelfAttention(channels=64, num_heads=4).to('cuda')
-attention_score = self_attention(batch_sample)
-print(attention_score)
-# test sinusoidal embeddings
-# embedder = SinusoidalPositionEmbeddings(dim=16)
-# t_early = embedder(torch.tensor([10]))    # Early denoising
-# t_mid = embedder(torch.tensor([500]))     # Mid denoising
-# t_mid2 = embedder(torch.tensor([501]))     # Mid denoising
-# t_late = embedder(torch.tensor([990]))    # Late denoising
-
-# print("Early timestep (10):", t_early[0, :4])  # First 4 dims
-# print("Mid timestep (500):", t_mid[0, :4])
-# print("Mid timestep 2 (501):", t_mid2[0, :4])
-# print("Late timestep (990):", t_late[0, :4])
