@@ -44,27 +44,3 @@ class NoiseScheduler(nn.Module):
             x_prev = pred_mean
         
         return x_prev
-
-
-# import cv2
-# import matplotlib.pyplot as plt
-# x0 = cv2.cvtColor(cv2.imread('/home/noisecape/developer/video-super-resolution/data/datasets/vimeo90k/vimeo_septuplet/sequences/00001/0001/im1.png'), cv2.COLOR_RGB2BGR)
-# x0 = torch.from_numpy(x0).float() / 255.0
-# h, w, c = x0.shape
-# noise_scheduler = NoiseScheduler()
-# fig, axes = plt.subplots(1, 5, figsize=(15, 3))
-# timesteps = [0, 250, 500, 750, 999]
-
-# for idx, t in enumerate(timesteps):
-#     x_t = noise_scheduler.add_noise(x0, timesteps=t)
-    
-#     # Clamp to valid range and convert for display
-#     img = x_t.clamp(0, 1).numpy()
-    
-#     axes[idx].imshow(img)
-#     axes[idx].set_title(f't={t}\nᾱ={noise_scheduler.alphas_cumprod[t]:.4f}')
-#     axes[idx].axis('off')
-
-# plt.tight_layout()
-# plt.savefig('noise_progression.png')
-# plt.show()
