@@ -44,4 +44,4 @@ def test_decoder_output_shape():
 
 def test_decoder_output_channels():
     decoder = Decoder()
-    assert decoder.output_conv.out_channels == 3
+    assert decoder.output_conv[-1].out_channels == 3
