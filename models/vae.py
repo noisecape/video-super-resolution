@@ -150,4 +150,65 @@ class Decoder(nn.Module):
         return self.output_conv(x)
 
 class VAE(nn.Module):
-    pass
+    """
+    Full VAE: Encoder + reparameterisation + Decoder.
+    Matches SD KL-f8 architecture for pretrained weight loading.
+    """
+
+    SCALE_FACTOR = 0.18215  # SD empirical latent normalisation constant
+
+    def __init__(self):
+        super().__init__()
+        self.encoder = Encoder()
+        self.decoder = Decoder()
+
+    def encode(self, x):
+        """RGB image → (mean, log_var), each (B, 4, H/8, W/8)."""
+        h = self.encoder(x)
+        mean, log_var = torch.chunk(h, 2, dim=1)
+        log_var = torch.clamp(log_var, -30.0, 20.0)  # numerical stability
+        return mean, log_var
+
+    def sample(self, mean, log_var):
+        """
+        Returns a scaled latent z ready for the diffusion U-Net.
+
+        Steps:
+          1. Compute std from log_var:  std = exp(0.5 * log_var)
+          2. Sample epsilon ~ N(0, I) using torch.randn_like(std)
+          3. z = mean + std * epsilon
+          4. Return z * SCALE_FACTOR
+        """
+        std = torch.exp(0.5 * log_var) # short for: exp(0.5 · log_var) = exp(log_var)^0.5 = sqrt(exp(log_var))
+        epsilon = torch.randn_like(std)
+        z = mean + std * epsilon # reparametrisation trick!
+
+        return z * self.SCALE_FACTOR
+
+    def decode(self, z):
+        """Scaled latent → RGB image."""
+        return self.decoder(z / self.SCALE_FACTOR)
+
+    def forward(self, x):
+        """Full encode → sample → decode for VAE training."""
+        mean, log_var = self.encode(x)
+        z = self.sample(mean, log_var)
+        recon = self.decode(z)
+        return recon, mean, log_var
+
+    def kl_loss(self, mean, log_var):
+        """
+        Implement KL divergence between N(mean, var) and N(0, I).
+
+        Formula: -0.5 * mean_over_all_elements(1 + log_var - mean² - exp(log_var))
+
+        Hints:
+          - use mean.pow(2) for mean²
+          - use log_var.exp() for exp(log_var)
+          - use torch.mean() to reduce to a scalar
+
+        Sanity check: when mean=0 and log_var=0 → result should be exactly 0.
+        """
+        loss = -0.5 * torch.mean(1 + log_var - mean.pow(2) - log_var.exp())
+        return loss
+ 
