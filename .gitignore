@@ -46,6 +46,9 @@ demos/outputs/*.jpg
 .ipynb_checkpoints/
 
 
+# Worktrees
+.worktrees/
+
 # IDE
 .vscode/
 .idea/
