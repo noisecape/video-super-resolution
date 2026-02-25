@@ -86,3 +86,42 @@ class Trainer:
         self.optimizer.load_state_dict(ckpt['optimizer_state_dict'])
         self.scaler.load_state_dict(ckpt['scaler_state_dict'])
         return ckpt['epoch']
+
+    def train(self, dataloader):
+        os.makedirs(self.config['checkpoint_dir'], exist_ok=True)
+        for epoch in range(1, self.config['num_epochs'] + 1):
+            avg_loss = self.train_epoch(dataloader)
+            print(f"Epoch {epoch}/{self.config['num_epochs']} — avg loss: {avg_loss:.4f}")
+            ckpt_path = os.path.join(
+                self.config['checkpoint_dir'], f"checkpoint_epoch{epoch:04d}.pt"
+            )
+            self.save_checkpoint(ckpt_path, epoch=epoch)
+            print(f"Saved checkpoint: {ckpt_path}")
+
+
+def main():
+    import torch.utils.data as data
+
+    config = {
+        'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+        'lr': 1e-4,
+        'num_epochs': 1,
+        'log_interval': 100,
+        'checkpoint_dir': 'checkpoints/',
+        'num_timesteps': 1000,
+    }
+
+    # Placeholder: replace with real dataset loader when data/ is implemented
+    # Expected batch shape: (B, 3, H, W) — HR frames, normalised to [-1, 1]
+    class FakeDataset(data.Dataset):
+        def __len__(self): return 64
+        def __getitem__(self, _): return torch.randn(3, 256, 256)
+
+    loader = data.DataLoader(FakeDataset(), batch_size=4, shuffle=True, num_workers=0)
+
+    trainer = Trainer(config)
+    trainer.train(loader)
+
+
+if __name__ == '__main__':
+    main()
