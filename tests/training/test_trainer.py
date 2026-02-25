@@ -84,3 +84,22 @@ def test_checkpoint_roundtrip():
         trainer2.load_checkpoint(path)
         for p1, p2 in zip(trainer.unet.parameters(), trainer2.unet.parameters()):
             assert torch.allclose(p1, p2)
+
+
+def test_validate_epoch_returns_float():
+    trainer = Trainer(CONFIG)
+    fake_loader = [torch.randn(2, 3, 64, 64) for _ in range(3)]
+    val_loss = trainer.validate_epoch(fake_loader)
+    assert isinstance(val_loss, float)
+    assert val_loss > 0
+
+
+def test_validate_epoch_handles_tuple_batch():
+    trainer = Trainer(CONFIG)
+    fake_loader = [
+        (torch.randn(2, 6, 3, 32, 32), torch.randn(2, 3, 32, 32), torch.randn(2, 3, 64, 64))
+        for _ in range(2)
+    ]
+    val_loss = trainer.validate_epoch(fake_loader)
+    assert isinstance(val_loss, float)
+    assert val_loss > 0

@@ -74,6 +74,25 @@ class Trainer:
                 print(f"  step {step + 1}: loss={loss:.4f}")
         return total_loss / len(dataloader)
 
+    def validate_epoch(self, dataloader) -> float:
+        self.unet.eval()
+        total_loss = 0.0
+        with torch.no_grad():
+            for batch in dataloader:
+                if isinstance(batch, (list, tuple)):
+                    batch = batch[2]  # target_hr
+                batch = batch.to(self.device)
+                B = batch.shape[0]
+                mean, log_var = self.vae.encode(batch)
+                z = self.vae.sample(mean, log_var)
+                t = torch.randint(0, self.config['num_timesteps'], (B,), device=self.device)
+                x_t, noise = self.scheduler.add_noise(z, t)
+                noise_pred = self.unet(x_t, t)
+                loss = F.mse_loss(noise_pred, noise)
+                total_loss += loss.item()
+        self.unet.train()
+        return total_loss / len(dataloader)
+
     def save_checkpoint(self, path: str, epoch: int):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         torch.save({
