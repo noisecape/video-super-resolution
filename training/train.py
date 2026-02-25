@@ -145,11 +145,17 @@ class Trainer:
         self.scaler.load_state_dict(ckpt['scaler_state_dict'])
         return ckpt['epoch']
 
-    def train(self, dataloader):
+    def train(self, train_loader, val_loader):
         os.makedirs(self.config['checkpoint_dir'], exist_ok=True)
         for epoch in range(1, self.config['num_epochs'] + 1):
-            avg_loss = self.train_epoch(dataloader)
-            print(f"Epoch {epoch}/{self.config['num_epochs']} — avg loss: {avg_loss:.4f}")
+            train_loss = self.train_epoch(train_loader)
+            val_loss = self.validate_epoch(val_loader)
+            print(f"Epoch {epoch}/{self.config['num_epochs']} — train: {train_loss:.4f}, val: {val_loss:.4f}")
+
+            if epoch % self.config['val_interval'] == 0:
+                metrics = self.validate_metrics(val_loader, self.config['val_num_samples'])
+                print(f"  PSNR: {metrics['psnr']:.2f} dB  SSIM: {metrics['ssim']:.4f}")
+
             ckpt_path = os.path.join(
                 self.config['checkpoint_dir'], f"checkpoint_epoch{epoch:04d}.pt"
             )
@@ -168,13 +174,22 @@ def main():
         'log_interval': 100,
         'checkpoint_dir': 'checkpoints/',
         'num_timesteps': 1000,
+        'val_interval': 5,
+        'val_num_samples': 8,
     }
 
-    dataset = Vimeo90k(dataset_mode='train')
-    loader = data.DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4, pin_memory=True)
+    train_dataset = Vimeo90k(dataset_mode='train')
+    train_loader = data.DataLoader(
+        train_dataset, batch_size=4, shuffle=True, num_workers=4, pin_memory=True
+    )
+
+    val_dataset = Vimeo90k(dataset_mode='test')
+    val_loader = data.DataLoader(
+        val_dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True
+    )
 
     trainer = Trainer(config)
-    trainer.train(loader)
+    trainer.train(train_loader, val_loader)
 
 
 if __name__ == '__main__':

@@ -103,6 +103,24 @@ def test_validate_metrics_returns_psnr_and_ssim():
     assert isinstance(metrics['ssim'], float)
 
 
+def test_train_calls_validate_epoch():
+    """train() should accept a val_loader and return without error."""
+    config = {
+        **SMALL_CONFIG,
+        'num_epochs': 1,
+        'val_interval': 1,
+        'val_num_samples': 1,
+    }
+    trainer = Trainer(config)
+    train_loader = [torch.randn(2, 3, 64, 64) for _ in range(2)]
+    val_loader = [torch.randn(1, 3, 64, 64)]
+
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as tmpdir:
+        trainer.config['checkpoint_dir'] = tmpdir
+        trainer.train(train_loader, val_loader)  # should not raise
+
+
 def test_validate_epoch_returns_float():
     trainer = Trainer(CONFIG)
     fake_loader = [torch.randn(2, 3, 64, 64) for _ in range(3)]
