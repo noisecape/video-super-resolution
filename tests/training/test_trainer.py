@@ -20,3 +20,29 @@ def test_unet_params_are_trainable():
     trainer = Trainer(CONFIG)
     trainable = [p for p in trainer.unet.parameters() if p.requires_grad]
     assert len(trainable) > 0
+
+def test_train_step_returns_scalar():
+    trainer = Trainer(CONFIG)
+    batch = torch.randn(2, 3, 64, 64)  # fake HR frames
+    loss = trainer.train_step(batch)
+    assert isinstance(loss, float)
+    assert loss > 0
+
+def test_train_step_does_not_update_vae():
+    trainer = Trainer(CONFIG)
+    vae_params_before = [p.clone() for p in trainer.vae.parameters()]
+    batch = torch.randn(2, 3, 64, 64)
+    trainer.train_step(batch)
+    for before, after in zip(vae_params_before, trainer.vae.parameters()):
+        assert torch.equal(before, after)
+
+def test_train_step_updates_unet():
+    trainer = Trainer(CONFIG)
+    unet_params_before = [p.clone() for p in trainer.unet.parameters()]
+    batch = torch.randn(2, 3, 64, 64)
+    trainer.train_step(batch)
+    any_changed = any(
+        not torch.equal(before, after)
+        for before, after in zip(unet_params_before, trainer.unet.parameters())
+    )
+    assert any_changed

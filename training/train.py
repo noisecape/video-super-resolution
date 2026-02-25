@@ -33,3 +33,30 @@ class Trainer:
         # Optimizer (UNet only — VAE has no grad)
         self.optimizer = torch.optim.Adam(self.unet.parameters(), lr=config['lr'])
         self.scaler = GradScaler(enabled=(config['device'] == 'cuda'))
+
+    def train_step(self, batch: torch.Tensor) -> float:
+        batch = batch.to(self.device)
+        B = batch.shape[0]
+
+        # Encode to latent (frozen VAE, no gradients)
+        with torch.no_grad():
+            mean, log_var = self.vae.encode(batch)
+            z = self.vae.sample(mean, log_var)
+
+        # Sample random timesteps, one per item in batch
+        t = torch.randint(0, self.config['num_timesteps'], (B,), device=self.device)
+
+        # Add noise
+        x_t, noise = self.scheduler.add_noise(z, t)
+
+        # Predict noise with U-Net, compute loss
+        self.optimizer.zero_grad()
+        with autocast(enabled=(self.config['device'] == 'cuda')):
+            noise_pred = self.unet(x_t, t)
+            loss = F.mse_loss(noise_pred, noise)
+
+        self.scaler.scale(loss).backward()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+
+        return loss.item()
