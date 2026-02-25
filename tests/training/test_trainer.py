@@ -46,3 +46,11 @@ def test_train_step_updates_unet():
         for before, after in zip(unet_params_before, trainer.unet.parameters())
     )
     assert any_changed
+
+def test_train_epoch_returns_float():
+    trainer = Trainer(CONFIG)
+    # Fake dataloader: list of 3 batches
+    fake_loader = [torch.randn(2, 3, 64, 64) for _ in range(3)]
+    avg_loss = trainer.train_epoch(fake_loader)
+    assert isinstance(avg_loss, float)
+    assert avg_loss > 0

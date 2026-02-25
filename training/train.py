@@ -60,3 +60,13 @@ class Trainer:
         self.scaler.update()
 
         return loss.item()
+
+    def train_epoch(self, dataloader) -> float:
+        self.unet.train()
+        total_loss = 0.0
+        for step, batch in enumerate(dataloader):
+            loss = self.train_step(batch)
+            total_loss += loss
+            if (step + 1) % self.config['log_interval'] == 0:
+                print(f"  step {step + 1}: loss={loss:.4f}")
+        return total_loss / len(dataloader)
