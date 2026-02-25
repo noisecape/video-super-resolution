@@ -55,6 +55,18 @@ def test_train_epoch_returns_float():
     assert isinstance(avg_loss, float)
     assert avg_loss > 0
 
+def test_train_epoch_handles_tuple_batch():
+    trainer = Trainer(CONFIG)
+    # Simulate dataset that returns (context_lr, target_lr, target_hr)
+    fake_loader = [
+        (torch.randn(2, 6, 3, 32, 32), torch.randn(2, 3, 32, 32), torch.randn(2, 3, 64, 64))
+        for _ in range(2)
+    ]
+    avg_loss = trainer.train_epoch(fake_loader)
+    assert isinstance(avg_loss, float)
+    assert avg_loss > 0
+
+
 import os, tempfile
 
 def test_checkpoint_roundtrip():

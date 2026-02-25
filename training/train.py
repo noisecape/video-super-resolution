@@ -65,6 +65,9 @@ class Trainer:
         self.unet.train()
         total_loss = 0.0
         for step, batch in enumerate(dataloader):
+            # Dataset may return (context_lr, target_lr, target_hr) or plain tensor
+            if isinstance(batch, (list, tuple)):
+                batch = batch[2]  # target_hr is the HR ground truth
             loss = self.train_step(batch)
             total_loss += loss
             if (step + 1) % self.config['log_interval'] == 0:
@@ -101,23 +104,19 @@ class Trainer:
 
 def main():
     import torch.utils.data as data
+    from data.vimeo90k import Vimeo90k
 
     config = {
         'device': 'cuda' if torch.cuda.is_available() else 'cpu',
         'lr': 1e-4,
-        'num_epochs': 1,
+        'num_epochs': 100,
         'log_interval': 100,
         'checkpoint_dir': 'checkpoints/',
         'num_timesteps': 1000,
     }
 
-    # Placeholder: replace with real dataset loader when data/ is implemented
-    # Expected batch shape: (B, 3, H, W) — HR frames, normalised to [-1, 1]
-    class FakeDataset(data.Dataset):
-        def __len__(self): return 64
-        def __getitem__(self, _): return torch.randn(3, 256, 256)
-
-    loader = data.DataLoader(FakeDataset(), batch_size=4, shuffle=True, num_workers=0)
+    dataset = Vimeo90k(dataset_mode='train')
+    loader = data.DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4, pin_memory=True)
 
     trainer = Trainer(config)
     trainer.train(loader)
