@@ -7,7 +7,7 @@ import numpy as np
 _DATASET_ROOT = Path(__file__).resolve().parent / 'datasets' / 'vimeo90k' / 'vimeo_septuplet'
 
 
-class Video90k(Dataset):
+class Vimeo90k(Dataset):
 
     def __init__(
             self, 
@@ -20,7 +20,7 @@ class Video90k(Dataset):
             downscale_technique:str='linear'
             ):
         
-        super(Video90k).__init__()
+        super(Vimeo90k, self).__init__()
 
         self.dataset_mode = dataset_mode
         self.target_selection_mode = target_selection_mode
@@ -61,13 +61,15 @@ class Video90k(Dataset):
         elif self.downscale_technique == 'cubic':
             interpolation = cv2.INTER_CUBIC
 
-        frames_high_res = np.zeros((self.num_frames, h, w, self.num_channels))
-        frames_low_res = np.zeros((self.num_frames, h//self.downscale_factor, w//self.downscale_factor, self.num_channels))
+        lr_h = int(h // self.downscale_factor)
+        lr_w = int(w // self.downscale_factor)
+        frames_high_res = np.zeros((self.num_frames, h, w, self.num_channels), dtype=np.uint8)
+        frames_low_res = np.zeros((self.num_frames, lr_h, lr_w, self.num_channels), dtype=np.uint8)
 
         for img_idx in range(0, 7):
             img = cv2.cvtColor(cv2.imread(self.dataset_path/sequence_path/f'im{img_idx+1}.png'), cv2.COLOR_BGR2RGB) # h,w,c
             frames_high_res[img_idx] = img
-            frames_low_res[img_idx] = cv2.resize(img, (w//self.downscale_factor, h//self.downscale_factor), interpolation=interpolation) # damn opencv, confusing to have w,h,c
+            frames_low_res[img_idx] = cv2.resize(img, (lr_w, lr_h), interpolation=interpolation) # damn opencv, confusing to have w,h,c
         return frames_low_res, frames_high_res
     
     def select_target(self, frames_low_res:np.ndarray, frames_high_res:np.ndarray):
@@ -79,15 +81,15 @@ class Video90k(Dataset):
             return context_low_res, target_low_res, target_high_res 
 
     def __getitem__(self, index):
-        # load frames in high res (leave them as they are)
-        frames_low_res, frames_high_res = self.load_frames(self.sequences[index]) # each frame has shape [7, H, W, C]
-        
-        # downsample to create the training sequence
-
+        frames_low_res, frames_high_res = self.load_frames(self.sequences[index])
         context_frames_low_res, target_low_res, target_high_res = self.select_target(frames_low_res, frames_high_res)
 
-        context_frames_low_res = torch.from_numpy(np.stack(context_frames_low_res)) / 255.0
-        target_low_res = torch.from_numpy(target_low_res) / 255.0
-        target_high_res = torch.from_numpy(target_high_res) / 255.0
+        # Convert HWC numpy uint8 → CHW float32 in [-1, 1]
+        def to_tensor(arr):
+            # arr shape: (H, W, C) or (N, H, W, C)
+            t = torch.from_numpy(arr.copy()).float() / 127.5 - 1.0
+            if t.ndim == 4:
+                return t.permute(0, 3, 1, 2)  # (N, H, W, C) → (N, C, H, W)
+            return t.permute(2, 0, 1)          # (H, W, C) → (C, H, W)
 
-        return context_frames_low_res, target_low_res, target_high_res
+        return to_tensor(context_frames_low_res), to_tensor(target_low_res), to_tensor(target_high_res)
