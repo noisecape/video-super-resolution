@@ -11,6 +11,13 @@ CONFIG = {
     'num_timesteps': 1000,
 }
 
+SMALL_CONFIG = {
+    **CONFIG,
+    'num_timesteps': 2,   # tiny loop so test is fast
+    'val_interval': 1,
+    'val_num_samples': 1,
+}
+
 def test_vae_params_are_frozen():
     trainer = Trainer(CONFIG)
     for param in trainer.vae.parameters():
@@ -84,6 +91,16 @@ def test_checkpoint_roundtrip():
         trainer2.load_checkpoint(path)
         for p1, p2 in zip(trainer.unet.parameters(), trainer2.unet.parameters()):
             assert torch.allclose(p1, p2)
+
+
+def test_validate_metrics_returns_psnr_and_ssim():
+    trainer = Trainer(SMALL_CONFIG)
+    # batch_size=1, single HR frame
+    fake_loader = [torch.randn(1, 3, 64, 64)]
+    metrics = trainer.validate_metrics(fake_loader, num_samples=1)
+    assert 'psnr' in metrics and 'ssim' in metrics
+    assert isinstance(metrics['psnr'], float)
+    assert isinstance(metrics['ssim'], float)
 
 
 def test_validate_epoch_returns_float():

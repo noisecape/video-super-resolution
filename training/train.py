@@ -93,6 +93,42 @@ class Trainer:
         self.unet.train()
         return total_loss / len(dataloader)
 
+    def validate_metrics(self, dataloader, num_samples: int) -> dict:
+        from training.metrics import psnr, ssim
+        self.unet.eval()
+        psnr_scores, ssim_scores = [], []
+
+        with torch.no_grad():
+            for i, batch in enumerate(dataloader):
+                if i >= num_samples:
+                    break
+                if isinstance(batch, (list, tuple)):
+                    batch = batch[2]  # target_hr
+                target_hr = batch.to(self.device)  # (1, 3, H, W)
+
+                # encode once to get latent shape, then start from pure noise
+                mean, log_var = self.vae.encode(target_hr)
+                z = self.vae.sample(mean, log_var)
+                x_t = torch.randn_like(z)
+
+                # reverse diffusion: T-1 → 0
+                for t in reversed(range(self.config['num_timesteps'])):
+                    t_batch = torch.tensor([t], device=self.device)
+                    noise_pred = self.unet(x_t, t_batch)
+                    x_t = self.scheduler.step(x_t, noise_pred, timestep=t)
+
+                # decode to pixel space
+                predicted = self.vae.decode(x_t).clamp(-1, 1)  # (1, 3, H, W)
+
+                psnr_scores.append(psnr(predicted[0], target_hr[0]))
+                ssim_scores.append(ssim(predicted[0], target_hr[0]))
+
+        self.unet.train()
+        return {
+            'psnr': sum(psnr_scores) / len(psnr_scores),
+            'ssim': sum(ssim_scores) / len(ssim_scores),
+        }
+
     def save_checkpoint(self, path: str, epoch: int):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         torch.save({
