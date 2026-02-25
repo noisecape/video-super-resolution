@@ -54,3 +54,21 @@ def test_train_epoch_returns_float():
     avg_loss = trainer.train_epoch(fake_loader)
     assert isinstance(avg_loss, float)
     assert avg_loss > 0
+
+import os, tempfile
+
+def test_checkpoint_roundtrip():
+    trainer = Trainer(CONFIG)
+    # Take one step so optimizer state is non-trivial
+    batch = torch.randn(2, 3, 64, 64)
+    trainer.train_step(batch)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, 'ckpt.pt')
+        trainer.save_checkpoint(path, epoch=1)
+
+        # Load into a fresh trainer and compare UNet params
+        trainer2 = Trainer(CONFIG)
+        trainer2.load_checkpoint(path)
+        for p1, p2 in zip(trainer.unet.parameters(), trainer2.unet.parameters()):
+            assert torch.allclose(p1, p2)

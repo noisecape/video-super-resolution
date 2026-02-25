@@ -70,3 +70,19 @@ class Trainer:
             if (step + 1) % self.config['log_interval'] == 0:
                 print(f"  step {step + 1}: loss={loss:.4f}")
         return total_loss / len(dataloader)
+
+    def save_checkpoint(self, path: str, epoch: int):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        torch.save({
+            'epoch': epoch,
+            'unet_state_dict': self.unet.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scaler_state_dict': self.scaler.state_dict(),
+        }, path)
+
+    def load_checkpoint(self, path: str) -> int:
+        ckpt = torch.load(path, map_location=self.device)
+        self.unet.load_state_dict(ckpt['unet_state_dict'])
+        self.optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        self.scaler.load_state_dict(ckpt['scaler_state_dict'])
+        return ckpt['epoch']
