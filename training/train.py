@@ -17,7 +17,7 @@ class Trainer:
 
         # Models
         self.vae = VAE().to(self.device)
-        self.unet = UNet(in_channels=4, out_channels=4).to(self.device)
+        self.unet = UNet(in_channels=8, out_channels=4).to(self.device)
         self.scheduler = NoiseScheduler(num_timestep=config['num_timesteps'])
 
         # Move scheduler tensors to device (not nn.Module buffers)
@@ -34,25 +34,30 @@ class Trainer:
         self.optimizer = torch.optim.Adam(self.unet.parameters(), lr=config['lr'])
         self.scaler = GradScaler(enabled=(config['device'] == 'cuda'))
 
-    def train_step(self, batch: torch.Tensor) -> float:
-        batch = batch.to(self.device)
-        B = batch.shape[0]
+    def train_step(self, target_lr: torch.Tensor, target_hr: torch.Tensor) -> float:
+        target_lr = target_lr.to(self.device)
+        target_hr = target_hr.to(self.device)
+        B = target_hr.shape[0]
 
-        # Encode to latent (frozen VAE, no gradients)
         with torch.no_grad():
-            mean, log_var = self.vae.encode(batch)
-            z = self.vae.sample(mean, log_var)
+            # Encode HR to latent
+            mean_hr, log_var_hr = self.vae.encode(target_hr)
+            z_hr = self.vae.sample(mean_hr, log_var_hr)
 
-        # Sample random timesteps, one per item in batch
+            # Encode LR to latent at native size, then upsample to match HR latent
+            mean_lr, log_var_lr = self.vae.encode(target_lr)
+            z_lr_small = self.vae.sample(mean_lr, log_var_lr)
+            z_lr = F.interpolate(z_lr_small, size=z_hr.shape[-2:], mode='bilinear', align_corners=False)
+
         t = torch.randint(0, self.config['num_timesteps'], (B,), device=self.device)
+        x_t, noise = self.scheduler.add_noise(z_hr, t)
 
-        # Add noise
-        x_t, noise = self.scheduler.add_noise(z, t)
+        # Concatenate noisy HR latent with LR conditioning along channel dim
+        x_input = torch.cat([x_t, z_lr], dim=1)  # (B, 8, H, W)
 
-        # Predict noise with U-Net, compute loss
         self.optimizer.zero_grad()
         with autocast(enabled=(self.config['device'] == 'cuda')):
-            noise_pred = self.unet(x_t, t)
+            noise_pred = self.unet(x_input, t)
             loss = F.mse_loss(noise_pred, noise)
 
         self.scaler.scale(loss).backward()
