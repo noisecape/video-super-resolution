@@ -104,8 +104,8 @@ def test_checkpoint_roundtrip():
 
 def test_validate_metrics_returns_psnr_and_ssim():
     trainer = Trainer(SMALL_CONFIG)
-    # batch_size=1, single HR frame
-    fake_loader = [torch.randn(1, 3, 64, 64)]
+    # (target_lr, target_hr) — LR is half the HR resolution
+    fake_loader = [(torch.randn(1, 3, 32, 32), torch.randn(1, 3, 64, 64))]
     metrics = trainer.validate_metrics(fake_loader, num_samples=1)
     assert 'psnr' in metrics and 'ssim' in metrics
     assert isinstance(metrics['psnr'], float)
@@ -113,21 +113,15 @@ def test_validate_metrics_returns_psnr_and_ssim():
 
 
 def test_train_calls_validate_epoch():
-    """train() should accept a val_loader and return without error."""
-    config = {
-        **SMALL_CONFIG,
-        'num_epochs': 1,
-        'val_interval': 1,
-        'val_num_samples': 1,
-    }
+    config = {**SMALL_CONFIG, 'num_epochs': 1, 'val_interval': 1, 'val_num_samples': 1}
     trainer = Trainer(config)
-    train_loader = [torch.randn(2, 3, 64, 64) for _ in range(2)]
-    val_loader = [torch.randn(1, 3, 64, 64)]
+    train_loader = [(torch.randn(2, 3, 32, 32), torch.randn(2, 3, 64, 64)) for _ in range(2)]
+    val_loader = [(torch.randn(1, 3, 32, 32), torch.randn(1, 3, 64, 64))]
 
     import tempfile, os
     with tempfile.TemporaryDirectory() as tmpdir:
         trainer.config['checkpoint_dir'] = tmpdir
-        trainer.train(train_loader, val_loader)  # should not raise
+        trainer.train(train_loader, val_loader)
 
 
 def test_validate_epoch_returns_float():

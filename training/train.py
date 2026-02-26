@@ -118,23 +118,31 @@ class Trainer:
             for i, batch in enumerate(dataloader):
                 if i >= num_samples:
                     break
-                if isinstance(batch, (list, tuple)):
-                    batch = batch[2]  # target_hr
-                target_hr = batch.to(self.device)  # (1, 3, H, W)
+                if len(batch) == 3:
+                    _, target_lr, target_hr = batch
+                else:
+                    target_lr, target_hr = batch
+                target_lr = target_lr.to(self.device)
+                target_hr = target_hr.to(self.device)
 
-                # encode once to get latent shape, then start from pure noise
-                mean, log_var = self.vae.encode(target_hr)
-                z = self.vae.sample(mean, log_var)
-                x_t = torch.randn_like(z)
+                # Encode LR once — fixed conditioning for the entire reverse loop
+                mean_lr, log_var_lr = self.vae.encode(target_lr)
+                z_lr_small = self.vae.sample(mean_lr, log_var_lr)
 
-                # reverse diffusion: T-1 → 0
+                # Get HR latent shape via a quick encode, then start from pure noise
+                mean_hr, log_var_hr = self.vae.encode(target_hr)
+                z_hr = self.vae.sample(mean_hr, log_var_hr)
+                z_lr = F.interpolate(z_lr_small, size=z_hr.shape[-2:], mode='bilinear', align_corners=False)
+                x_t = torch.randn_like(z_hr)
+
+                # Reverse diffusion: T-1 → 0, conditioning on z_lr at every step
                 for t in reversed(range(self.config['num_timesteps'])):
                     t_batch = torch.tensor([t], device=self.device)
-                    noise_pred = self.unet(x_t, t_batch)
+                    x_input = torch.cat([x_t, z_lr], dim=1)
+                    noise_pred = self.unet(x_input, t_batch)
                     x_t = self.scheduler.step(x_t, noise_pred, timestep=t)
 
-                # decode to pixel space
-                predicted = self.vae.decode(x_t).clamp(-1, 1)  # (1, 3, H, W)
+                predicted = self.vae.decode(x_t).clamp(-1, 1)
 
                 psnr_scores.append(psnr(predicted[0], target_hr[0]))
                 ssim_scores.append(ssim(predicted[0], target_hr[0]))
