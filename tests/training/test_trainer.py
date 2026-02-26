@@ -61,15 +61,18 @@ def test_train_step_updates_unet():
 
 def test_train_epoch_returns_float():
     trainer = Trainer(CONFIG)
-    # Fake dataloader: list of 3 batches
-    fake_loader = [torch.randn(2, 3, 64, 64) for _ in range(3)]
+    fake_loader = [
+        (torch.randn(2, 3, 32, 32), torch.randn(2, 3, 64, 64))
+        for _ in range(3)
+    ]
     avg_loss = trainer.train_epoch(fake_loader)
     assert isinstance(avg_loss, float)
     assert avg_loss > 0
 
-def test_train_epoch_handles_tuple_batch():
+
+def test_train_epoch_handles_full_tuple_batch():
     trainer = Trainer(CONFIG)
-    # Simulate dataset that returns (context_lr, target_lr, target_hr)
+    # Full dataset tuple: (context_lr, target_lr, target_hr)
     fake_loader = [
         (torch.randn(2, 6, 3, 32, 32), torch.randn(2, 3, 32, 32), torch.randn(2, 3, 64, 64))
         for _ in range(2)
@@ -84,8 +87,9 @@ import os, tempfile
 def test_checkpoint_roundtrip():
     trainer = Trainer(CONFIG)
     # Take one step so optimizer state is non-trivial
-    batch = torch.randn(2, 3, 64, 64)
-    trainer.train_step(batch)
+    target_lr = torch.randn(2, 3, 32, 32)
+    target_hr = torch.randn(2, 3, 64, 64)
+    trainer.train_step(target_lr, target_hr)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         path = os.path.join(tmpdir, 'ckpt.pt')
@@ -128,13 +132,16 @@ def test_train_calls_validate_epoch():
 
 def test_validate_epoch_returns_float():
     trainer = Trainer(CONFIG)
-    fake_loader = [torch.randn(2, 3, 64, 64) for _ in range(3)]
+    fake_loader = [
+        (torch.randn(2, 3, 32, 32), torch.randn(2, 3, 64, 64))
+        for _ in range(3)
+    ]
     val_loss = trainer.validate_epoch(fake_loader)
     assert isinstance(val_loss, float)
     assert val_loss > 0
 
 
-def test_validate_epoch_handles_tuple_batch():
+def test_validate_epoch_handles_full_tuple_batch():
     trainer = Trainer(CONFIG)
     fake_loader = [
         (torch.randn(2, 6, 3, 32, 32), torch.randn(2, 3, 32, 32), torch.randn(2, 3, 64, 64))

@@ -70,10 +70,11 @@ class Trainer:
         self.unet.train()
         total_loss = 0.0
         for step, batch in enumerate(dataloader):
-            # Dataset may return (context_lr, target_lr, target_hr) or plain tensor
-            if isinstance(batch, (list, tuple)):
-                batch = batch[2]  # target_hr is the HR ground truth
-            loss = self.train_step(batch)
+            if len(batch) == 3:
+                _, target_lr, target_hr = batch   # (context_lr, target_lr, target_hr)
+            else:
+                target_lr, target_hr = batch      # (target_lr, target_hr)
+            loss = self.train_step(target_lr, target_hr)
             total_loss += loss
             if (step + 1) % self.config['log_interval'] == 0:
                 print(f"  step {step + 1}: loss={loss:.4f}")
@@ -84,15 +85,25 @@ class Trainer:
         total_loss = 0.0
         with torch.no_grad():
             for batch in dataloader:
-                if isinstance(batch, (list, tuple)):
-                    batch = batch[2]  # target_hr
-                batch = batch.to(self.device)
-                B = batch.shape[0]
-                mean, log_var = self.vae.encode(batch)
-                z = self.vae.sample(mean, log_var)
+                if len(batch) == 3:
+                    _, target_lr, target_hr = batch
+                else:
+                    target_lr, target_hr = batch
+                target_lr = target_lr.to(self.device)
+                target_hr = target_hr.to(self.device)
+                B = target_hr.shape[0]
+
+                mean_hr, log_var_hr = self.vae.encode(target_hr)
+                z_hr = self.vae.sample(mean_hr, log_var_hr)
+
+                mean_lr, log_var_lr = self.vae.encode(target_lr)
+                z_lr_small = self.vae.sample(mean_lr, log_var_lr)
+                z_lr = F.interpolate(z_lr_small, size=z_hr.shape[-2:], mode='bilinear', align_corners=False)
+
                 t = torch.randint(0, self.config['num_timesteps'], (B,), device=self.device)
-                x_t, noise = self.scheduler.add_noise(z, t)
-                noise_pred = self.unet(x_t, t)
+                x_t, noise = self.scheduler.add_noise(z_hr, t)
+                x_input = torch.cat([x_t, z_lr], dim=1)
+                noise_pred = self.unet(x_input, t)
                 loss = F.mse_loss(noise_pred, noise)
                 total_loss += loss.item()
         self.unet.train()
