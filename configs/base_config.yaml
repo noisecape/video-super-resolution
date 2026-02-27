@@ -1,0 +1,11 @@
+device: cuda
+lr: 1.0e-4
+num_epochs: 5
+batch_size: 4
+num_workers: 4
+num_timesteps: 1000
+log_interval: 50
+val_interval: 1
+val_num_samples: 8
+checkpoint_dir: checkpoints/smoke/
+subset_size: 1000
