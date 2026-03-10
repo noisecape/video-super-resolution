@@ -3,6 +3,7 @@ import os
 import torch
 import torch.nn.functional as F
 from torch.cuda.amp import GradScaler, autocast
+from PIL import Image
 
 from models.vae import VAE
 from models.unet import UNet
@@ -109,10 +110,13 @@ class Trainer:
         self.unet.train()
         return total_loss / len(dataloader)
 
-    def validate_metrics(self, dataloader, num_samples: int) -> dict:
-        from training.metrics import psnr, ssim
+    def validate_metrics(self, dataloader, num_samples: int, output_dir: str = None) -> dict:
+        from training.metrics import psnr, ssim, _to_numpy_uint8_hwc
         self.unet.eval()
         psnr_scores, ssim_scores = [], []
+
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
 
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
@@ -147,6 +151,14 @@ class Trainer:
                 psnr_scores.append(psnr(predicted[0], target_hr[0]))
                 ssim_scores.append(ssim(predicted[0], target_hr[0]))
 
+                if output_dir:
+                    Image.fromarray(_to_numpy_uint8_hwc(predicted[0])).save(
+                        os.path.join(output_dir, f"sample_{i:02d}_pred.png")
+                    )
+                    Image.fromarray(_to_numpy_uint8_hwc(target_hr[0])).save(
+                        os.path.join(output_dir, f"sample_{i:02d}_gt.png")
+                    )
+
         self.unet.train()
         return {
             'psnr': sum(psnr_scores) / len(psnr_scores),
@@ -171,20 +183,27 @@ class Trainer:
 
     def train(self, train_loader, val_loader):
         os.makedirs(self.config['checkpoint_dir'], exist_ok=True)
+        prev_ckpt_path = None
         for epoch in range(1, self.config['num_epochs'] + 1):
             train_loss = self.train_epoch(train_loader)
             val_loss = self.validate_epoch(val_loader)
             print(f"Epoch {epoch}/{self.config['num_epochs']} — train: {train_loss:.4f}, val: {val_loss:.4f}")
 
             if epoch % self.config['val_interval'] == 0:
-                metrics = self.validate_metrics(val_loader, self.config['val_num_samples'])
+                val_img_dir = os.path.join(self.config['checkpoint_dir'], f"val_images/epoch{epoch:04d}")
+                metrics = self.validate_metrics(val_loader, self.config['val_num_samples'], output_dir=val_img_dir)
                 print(f"  PSNR: {metrics['psnr']:.2f} dB  SSIM: {metrics['ssim']:.4f}")
+                print(f"  Saved validation images: {val_img_dir}")
 
             ckpt_path = os.path.join(
                 self.config['checkpoint_dir'], f"checkpoint_epoch{epoch:04d}.pt"
             )
             self.save_checkpoint(ckpt_path, epoch=epoch)
             print(f"Saved checkpoint: {ckpt_path}")
+
+            if prev_ckpt_path and os.path.exists(prev_ckpt_path):
+                os.remove(prev_ckpt_path)
+            prev_ckpt_path = ckpt_path
 
 
 def main():
